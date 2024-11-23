@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import typeorm from './config/typeorm';
 import jwt from './config/jwt';
+import { ServicesModule } from './services/services.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import jwt from './config/jwt';
     }),
     AuthModule,
     UsersModule,
+    ServicesModule,
   ],
   controllers: [],
   providers: [],

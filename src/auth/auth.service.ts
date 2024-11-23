@@ -51,13 +51,21 @@ export class AuthService {
     username: string,
     password: string,
     role: string,
-  ): Promise<Omit<User, 'password' | 'refreshToken'>> {
+  ): Promise<{
+    id: string;
+    role: string;
+    username: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }> {
     const newUser = await this.usersService.create({ username, password, role });
 
     return {
       id: newUser.id,
       role: newUser.role,
       username: newUser.username,
+      createdAt: newUser.createdAt,
+      updatedAt: newUser.updatedAt,
     };
   }
 
