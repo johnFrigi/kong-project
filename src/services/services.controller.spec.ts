@@ -1,3 +1,4 @@
+import { plainToInstance } from 'class-transformer';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ServicesController } from './services.controller';
 import { ServicesService } from './services.service';
@@ -8,12 +9,6 @@ import { Version } from '../versions/versions.entity';
 import { HttpStatus } from '@nestjs/common';
 import { Service } from './services.entity';
 
-const mockServicesService = () => ({
-  createService: jest.fn(),
-  getAllServices: jest.fn(),
-  getServiceById: jest.fn(),
-});
-
 describe('ServicesController', () => {
   let controller: ServicesController;
   let servicesService: jest.Mocked<Partial<ServicesService>>;
@@ -21,7 +16,16 @@ describe('ServicesController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ServicesController],
-      providers: [{ provide: ServicesService, useFactory: mockServicesService }],
+      providers: [
+        {
+          provide: ServicesService,
+          useFactory: () => ({
+            createService: jest.fn(),
+            getAllServices: jest.fn(),
+            getServiceById: jest.fn(),
+          }),
+        },
+      ],
     }).compile();
 
     controller = module.get<ServicesController>(ServicesController);
@@ -110,19 +114,15 @@ describe('ServicesController', () => {
     it('should return a service by ID', async () => {
       const paramId = 'service-1234';
       const queryIncludeVersions = true;
-      const mockService: ServiceResponseDto = {
+
+      const mockService = {
         id: paramId,
         name: 'Service A',
         description: 'Service Description',
         createdById: 'user-1234',
+        createdBy: { id: 'user-1234' } as User,
         createdAt: new Date(),
         updatedAt: new Date(),
-        versions: [{ id: 'version-1', name: '1.0.0' }],
-      };
-
-      const fullService = {
-        ...mockService,
-        createdBy: { id: 'user-1234' } as User,
         versions: [
           {
             id: 'version-1',
@@ -134,7 +134,9 @@ describe('ServicesController', () => {
         ],
       };
 
-      servicesService.getServiceById.mockResolvedValue(fullService);
+      servicesService.getServiceById!.mockResolvedValue(mockService);
+
+      const transformedService = plainToInstance(ServiceResponseDto, mockService);
 
       const result = await controller.getServiceById(paramId, queryIncludeVersions);
 
@@ -145,7 +147,7 @@ describe('ServicesController', () => {
       expect(result).toEqual({
         statusCode: HttpStatus.OK,
         message: 'Service retrieved successfully',
-        data: mockService,
+        data: transformedService,
       });
     });
 
