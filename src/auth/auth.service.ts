@@ -13,12 +13,18 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  async validateUser(username: string, password: string): Promise<Omit<User, 'password'> | null> {
+  async validateUser(
+    username: string,
+    password: string,
+  ): Promise<Pick<User, 'username' | 'id' | 'role'>> {
     const user = await this.usersService.findByUsername(username);
 
     if (user && (await bcrypt.compare(password, user.password))) {
-      const { password: _, ...result } = user;
-      return result;
+      return {
+        id: user.id,
+        role: user.role,
+        username: user.username,
+      };
     }
 
     throw new UnauthorizedException('Invalid credentials');
