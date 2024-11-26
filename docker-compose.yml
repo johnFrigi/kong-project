@@ -1,4 +1,4 @@
-version: "3.8"
+version: '3.8'
 
 services:
   db:
@@ -9,9 +9,28 @@ services:
       POSTGRES_PASSWORD: password123
       POSTGRES_DB: kong
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nestjs_app
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: password123
+      DB_NAME: kong
+      JWT_SECRET: f64fcdc5eed5fe40cb8ad4a27a73fdc7709b92a910f438383d077608bd7d4cd5
+    ports:
+      - '3000:3000'
+    depends_on:
+      - db
+    volumes:
+      - .:/app
 
 volumes:
   postgres_data:

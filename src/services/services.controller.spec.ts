@@ -3,10 +3,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ServicesController } from './services.controller';
 import { ServicesService } from './services.service';
 import { CreateServiceDto } from './dtos/create-service.dto';
+import { UpdateServiceDto } from './dtos/update-service.dto';
 import { ServiceResponseDto } from './dtos/service-response.dto';
 import { User } from '../users/users.entity';
 import { Version } from '../versions/versions.entity';
-import { HttpStatus } from '@nestjs/common';
+import { HttpStatus, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Service } from './services.entity';
 
 describe('ServicesController', () => {
@@ -23,6 +24,7 @@ describe('ServicesController', () => {
             createService: jest.fn(),
             getAllServices: jest.fn(),
             getServiceById: jest.fn(),
+            updateService: jest.fn(),
           }),
         },
       ],
@@ -61,7 +63,7 @@ describe('ServicesController', () => {
       expect(result).toEqual({
         statusCode: HttpStatus.CREATED,
         message: 'Service successfully created',
-        data: { createdService },
+        data: createdService,
       });
     });
   });
@@ -73,6 +75,8 @@ describe('ServicesController', () => {
         page: 1,
         limit: 10,
         includeVersions: true,
+        sortBy: 'updatedAt',
+        sortDirection: 'desc',
       };
       const mockServices = [
         {
@@ -99,9 +103,14 @@ describe('ServicesController', () => {
         query.page,
         query.limit,
         query.includeVersions,
+        'updatedAt',
+        'desc',
       );
 
-      expect(servicesService.getAllServices).toHaveBeenCalledWith(query);
+      expect(servicesService.getAllServices).toHaveBeenCalledWith({
+        ...query,
+      });
+
       expect(result).toEqual({
         statusCode: HttpStatus.OK,
         message: 'Services retrieved successfully',
@@ -134,7 +143,7 @@ describe('ServicesController', () => {
         ],
       };
 
-      servicesService.getServiceById!.mockResolvedValue(mockService);
+      servicesService.getServiceById.mockResolvedValue(mockService);
 
       const transformedService = plainToInstance(ServiceResponseDto, mockService);
 
@@ -151,22 +160,89 @@ describe('ServicesController', () => {
       });
     });
 
-    it('should return not found if the service does not exist', async () => {
+    it('should throw NotFoundException if the service does not exist', async () => {
       const paramId = 'invalid-service-id';
       const queryIncludeVersions = false;
 
       servicesService.getServiceById!.mockResolvedValue(null);
 
-      const result = await controller.getServiceById(paramId, queryIncludeVersions);
+      await expect(controller.getServiceById(paramId, queryIncludeVersions)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
 
-      expect(servicesService.getServiceById).toHaveBeenCalledWith({
+  describe('updateService', () => {
+    it('should update a service and return response', async () => {
+      const paramId = 'service-1234';
+      const updateServiceDto: UpdateServiceDto = {
+        name: 'Updated Service Name',
+        description: 'Updated Description',
+        versionsToAdd: ['v1.2.0'],
+        versionsToRemove: ['version-1'],
+      };
+
+      const updatedService = {
         id: paramId,
-        includeVersions: queryIncludeVersions,
+        name: updateServiceDto.name,
+        description: updateServiceDto.description,
+        createdById: 'user-1234',
+        createdBy: { id: 'user-1234' } as User,
+        createdAt: new Date('2023-01-01T00:00:00Z'),
+        updatedAt: new Date('2023-01-02T00:00:00Z'),
+        versions: [
+          {
+            id: 'version-1',
+            name: '1.0.0',
+            service: { id: paramId } as Service,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          } as Version,
+        ],
+      };
+
+      servicesService.updateService.mockResolvedValue(updatedService);
+
+      const result = await controller.updateService(paramId, updateServiceDto);
+
+      expect(servicesService.updateService).toHaveBeenCalledWith({
+        serviceId: paramId,
+        updateData: {
+          name: updateServiceDto.name,
+          description: updateServiceDto.description,
+          versionsToAdd: updateServiceDto.versionsToAdd,
+          versionsToRemove: updateServiceDto.versionsToRemove,
+        },
       });
       expect(result).toEqual({
-        statusCode: HttpStatus.NOT_FOUND,
-        message: 'Service not found',
+        statusCode: HttpStatus.OK,
+        message: 'Service updated successfully',
+        data: updatedService,
       });
+    });
+
+    it('should throw NotFoundException if the service does not exist', async () => {
+      const paramId = 'invalid-service-id';
+      const updateServiceDto: UpdateServiceDto = {
+        name: 'Updated Service Name',
+      };
+
+      servicesService.updateService!.mockResolvedValue(null);
+
+      await expect(controller.updateService(paramId, updateServiceDto)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should throw BadRequestException if name is an empty', async () => {
+      const paramId = 'service-1234';
+      const updateServiceDto: UpdateServiceDto = {
+        name: '',
+      };
+
+      await expect(controller.updateService(paramId, updateServiceDto)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 });

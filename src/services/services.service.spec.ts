@@ -17,6 +17,7 @@ const mockServiceRepository = () => ({
 const mockVersionRepository = () => ({
   create: jest.fn(),
   save: jest.fn(),
+  delete: jest.fn(),
 });
 
 const mockUserRepository = () => ({
@@ -27,6 +28,7 @@ const mockDataSource = () => ({
   transaction: jest.fn((callback) =>
     callback({
       save: jest.fn(),
+      delete: jest.fn(),
     }),
   ),
 });
@@ -35,6 +37,7 @@ describe('ServicesService', () => {
   let service: ServicesService;
   let serviceRepository: Repository<Service>;
   let userRepository: Repository<User>;
+  let versionRepository: Repository<Version>;
   let dataSource: DataSource;
 
   beforeEach(async () => {
@@ -51,6 +54,7 @@ describe('ServicesService', () => {
     service = module.get<ServicesService>(ServicesService);
     serviceRepository = module.get<Repository<Service>>(getRepositoryToken(Service));
     userRepository = module.get<Repository<User>>(getRepositoryToken(User));
+    versionRepository = module.get<Repository<Version>>(getRepositoryToken(Version));
     dataSource = module.get<DataSource>(DataSource);
   });
 
@@ -63,14 +67,16 @@ describe('ServicesService', () => {
       };
       const createdByUserId = 'user-1234';
 
-      (userRepository.findOne as jest.Mock).mockResolvedValue({ id: createdByUserId });
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue({ id: createdByUserId } as User);
 
       const createdService = {
         id: 'service-1234',
         name: createServiceDto.name,
         description: createServiceDto.description,
       };
-      (serviceRepository.create as jest.Mock).mockReturnValue(createdService);
+
+      jest.spyOn(serviceRepository, 'create').mockReturnValue(createdService as Service);
+
       (dataSource.transaction as jest.Mock).mockImplementation(async (callback) => {
         return callback({
           save: jest.fn().mockResolvedValue(createdService),
@@ -89,7 +95,7 @@ describe('ServicesService', () => {
     });
 
     it('should throw an error if user is not found', async () => {
-      (userRepository.findOne as jest.Mock).mockResolvedValue(null);
+      jest.spyOn(userRepository, 'findOne').mockResolvedValue(null);
 
       const createServiceDto: CreateServiceDto = {
         name: 'Test Service',
@@ -111,9 +117,10 @@ describe('ServicesService', () => {
       const includeVersions = false;
 
       const mockServices = [
-        { id: 'service-1234', name: 'Test Service', description: 'Description' },
+        { id: 'service-1234', name: 'Test Service', description: 'Description' } as Service,
       ];
-      (serviceRepository.findAndCount as jest.Mock).mockResolvedValue([mockServices, 1]);
+
+      jest.spyOn(serviceRepository, 'findAndCount').mockResolvedValue([mockServices, 1]);
 
       const result = await service.getAllServices({ search, page, limit, includeVersions });
 
@@ -141,7 +148,10 @@ describe('ServicesService', () => {
         { id: 'service-1234', name: 'A Service', description: 'Description' },
         { id: 'service-5678', name: 'B Service', description: 'Description' },
       ];
-      (serviceRepository.findAndCount as jest.Mock).mockResolvedValue([mockServices, 2]);
+
+      jest
+        .spyOn(serviceRepository, 'findAndCount')
+        .mockResolvedValue([mockServices as Service[], 2]);
 
       const result = await service.getAllServices({
         search: undefined,
@@ -174,9 +184,10 @@ describe('ServicesService', () => {
           name: 'Test Service',
           description: 'Description',
           versions: [{ id: 'version-1', name: '1.0.0' }],
-        },
+        } as Service,
       ];
-      (serviceRepository.findAndCount as jest.Mock).mockResolvedValue([mockServices, 1]);
+
+      jest.spyOn(serviceRepository, 'findAndCount').mockResolvedValue([mockServices, 1]);
 
       const result = await service.getAllServices({ page, limit, includeVersions });
 
@@ -197,7 +208,7 @@ describe('ServicesService', () => {
       const serviceId = 'service-1234';
       const mockService = { id: serviceId, name: 'Test Service', description: 'Test Description' };
 
-      (serviceRepository.findOne as jest.Mock).mockResolvedValue(mockService);
+      jest.spyOn(serviceRepository, 'findOne').mockResolvedValue(mockService as Service);
 
       const result = await service.getServiceById({ id: serviceId, includeVersions: false });
 
@@ -212,7 +223,7 @@ describe('ServicesService', () => {
       const serviceId = 'service-1234';
       const mockService = { id: serviceId, name: 'Test Service', description: 'Test Description' };
 
-      (serviceRepository.findOne as jest.Mock).mockResolvedValue(mockService);
+      jest.spyOn(serviceRepository, 'findOne').mockResolvedValue(mockService as Service);
 
       const result = await service.getServiceById({ id: serviceId, includeVersions: true });
 
@@ -224,10 +235,141 @@ describe('ServicesService', () => {
     });
 
     it('should return null if the service is not found', async () => {
-      (serviceRepository.findOne as jest.Mock).mockResolvedValue(null);
+      jest.spyOn(serviceRepository, 'findOne').mockResolvedValue(null);
 
       const result = await service.getServiceById({ id: 'invalid-service-id' });
 
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('updateService', () => {
+    it('should update service details successfully', async () => {
+      const serviceId = 'service-1234';
+      const updateData = {
+        name: 'Updated Service Name',
+        description: 'Updated Service Description',
+      };
+      const mockService = {
+        id: serviceId,
+        name: 'Original Service Name',
+        description: 'Original Description',
+        versions: [],
+      };
+
+      jest.spyOn(serviceRepository, 'findOne').mockResolvedValue(mockService as Service);
+      (dataSource.transaction as jest.Mock).mockImplementation(async (callback) => {
+        return callback({
+          save: jest.fn().mockResolvedValue({ ...mockService, ...updateData }),
+        });
+      });
+
+      const result = await service.updateService({ serviceId, updateData });
+
+      expect(serviceRepository.findOne).toHaveBeenCalledWith({
+        where: { id: serviceId },
+        relations: ['versions'],
+      });
+      expect(dataSource.transaction).toHaveBeenCalled();
+      expect(result).toEqual({ ...mockService, ...updateData });
+    });
+
+    it('should add new versions to the service', async () => {
+      const serviceId = 'service-1234';
+      const updateData = {
+        versionsToAdd: ['v1.2.0'],
+      };
+      const mockService = {
+        id: serviceId,
+        name: 'Service Name',
+        description: 'Service Description',
+        versions: [],
+      };
+      const mockUpdatedValue = {
+        ...mockService,
+        versions: [{ id: 'version-1', name: 'v1.2.0' }],
+      };
+
+      jest.spyOn(serviceRepository, 'findOne').mockResolvedValueOnce(mockService as Service);
+      (dataSource.transaction as jest.Mock).mockImplementation(async (callback) => {
+        return callback({
+          save: jest.fn().mockResolvedValue(mockUpdatedValue),
+        });
+      });
+      jest.spyOn(serviceRepository, 'findOne').mockResolvedValueOnce(mockUpdatedValue as Service);
+
+      const result = await service.updateService({ serviceId, updateData });
+
+      expect(serviceRepository.findOne).toHaveBeenCalledWith({
+        where: { id: serviceId },
+        relations: ['versions'],
+      });
+
+      expect(versionRepository.create).toHaveBeenCalledWith({
+        name: 'v1.2.0',
+        service: mockService,
+      });
+      expect(dataSource.transaction).toHaveBeenCalled();
+      expect(result.versions).toEqual([{ id: 'version-1', name: 'v1.2.0' }]);
+    });
+
+    it('should remove versions from the service', async () => {
+      const serviceId = 'service-1234';
+      const updateData = {
+        versionsToRemove: ['version-1'],
+      };
+      const mockService = {
+        id: serviceId,
+        name: 'Service Name',
+        description: 'Service Description',
+        versions: [{ id: 'version-1', name: 'v1.0.0' }],
+      } as Service;
+
+      const updatedService = {
+        ...mockService,
+        version: [],
+      };
+
+      const deleteSpy = jest.fn();
+
+      jest.spyOn(serviceRepository, 'findOne').mockResolvedValue(mockService as Service);
+      (dataSource.transaction as jest.Mock).mockImplementation(async (callback) => {
+        return callback({
+          delete: deleteSpy.mockResolvedValue({}),
+          save: jest.fn().mockResolvedValue(updatedService),
+        });
+      });
+      jest.spyOn(serviceRepository, 'findOne').mockResolvedValueOnce(updatedService);
+
+      await service.updateService({ serviceId, updateData });
+
+      expect(serviceRepository.findOne).toHaveBeenCalledWith({
+        where: { id: serviceId },
+        relations: ['versions'],
+      });
+
+      expect(dataSource.transaction).toHaveBeenCalled();
+
+      expect(deleteSpy).toHaveBeenCalledWith(Version, {
+        id: 'version-1',
+        service: { id: serviceId },
+      });
+    });
+
+    it('should return null if the service is not found', async () => {
+      const serviceId = 'invalid-service-id';
+      const updateData = {
+        name: 'Updated Service Name',
+      };
+
+      jest.spyOn(serviceRepository, 'findOne').mockResolvedValue(null);
+
+      const result = await service.updateService({ serviceId, updateData });
+
+      expect(serviceRepository.findOne).toHaveBeenCalledWith({
+        where: { id: serviceId },
+        relations: ['versions'],
+      });
       expect(result).toBeNull();
     });
   });

@@ -111,4 +111,61 @@ export class ServicesService {
 
     return plainToInstance(Service, service);
   }
+
+  async updateService({
+    serviceId,
+    updateData,
+  }: {
+    serviceId: string;
+    updateData: {
+      name?: string;
+      description?: string;
+      versionsToAdd?: string[];
+      versionsToRemove?: string[];
+    };
+  }): Promise<Service | null> {
+    const service = await this.serviceRepository.findOne({
+      where: { id: serviceId },
+      relations: ['versions'],
+    });
+
+    if (!service) {
+      return null;
+    }
+
+    if (updateData.name) {
+      service.name = updateData.name;
+    }
+
+    if (updateData.description !== undefined) {
+      service.description = updateData.description;
+    }
+
+    await this.dataSource.transaction(async (transactionalEntityManager) => {
+      if (updateData.versionsToAdd) {
+        for (const versionName of updateData.versionsToAdd) {
+          const newVersion = this.versionRepository.create({
+            name: versionName,
+            service,
+          });
+
+          await transactionalEntityManager.save(newVersion);
+        }
+      }
+
+      if (updateData.versionsToRemove) {
+        for (const versionId of updateData.versionsToRemove) {
+          await transactionalEntityManager.delete(Version, {
+            id: versionId,
+            service: { id: serviceId },
+          });
+        }
+      }
+    });
+
+    return this.serviceRepository.findOne({
+      where: { id: serviceId },
+      relations: ['versions'],
+    });
+  }
 }

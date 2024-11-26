@@ -6,9 +6,11 @@ import {
   ManyToOne,
   CreateDateColumn,
   UpdateDateColumn,
+  Unique,
 } from 'typeorm';
 
 @Entity('versions')
+@Unique(['name', 'service'])
 export class Version {
   @PrimaryGeneratedColumn('uuid')
   id: string;

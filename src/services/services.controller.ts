@@ -1,10 +1,23 @@
-import { Controller, Get, Post, Body, Query, Param, Request, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  Param,
+  Request,
+  HttpStatus,
+  Patch,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { ServicesService } from './services.service';
 import { CreateServiceDto } from './dtos/create-service.dto';
 import { Auth } from '../guards/auth/auth.decorator';
 import { User } from '../users/users.entity';
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { ServiceResponseDto } from './dtos/service-response.dto';
+import { UpdateServiceDto } from './dtos/update-service.dto';
 
 @Controller('api/v1/services')
 export class ServicesController {
@@ -44,13 +57,13 @@ export class ServicesController {
     return {
       statusCode: HttpStatus.CREATED,
       message: 'Service successfully created',
-      data: { createdService },
+      data: { ...createdService },
     };
   }
 
-  @Get()
   @Auth()
-  @ApiOperation({ summary: 'Get all services with optional pagination and search' })
+  @Get()
+  @ApiOperation({ summary: 'Get all services with optional pagination, search, and sorting' })
   @ApiQuery({
     name: 'search',
     required: false,
@@ -78,13 +91,26 @@ export class ServicesController {
     description: 'Whether to include versions for the service',
     example: true,
   })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    type: String,
+    description: 'Field to sort by (name, createdAt, updatedAt)',
+    example: 'name',
+  })
+  @ApiQuery({
+    name: 'sortDirection',
+    required: false,
+    type: String,
+    description: 'Sort direction (asc or desc)',
+    example: 'asc',
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'List of services retrieved successfully.',
-    type: [ServiceResponseDto],
     schema: {
       example: {
-        data: [
+        services: [
           {
             id: '123e4567-e89b-12d3-a456-426614174000',
             name: 'Service A',
@@ -109,12 +135,16 @@ export class ServicesController {
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 12,
     @Query('includeVersions') includeVersions: boolean = false,
+    @Query('sortBy') sortBy: 'name' | 'createdAt' | 'updatedAt' = 'createdAt',
+    @Query('sortDirection') sortDirection: 'asc' | 'desc' = 'asc',
   ) {
     const services = await this.servicesService.getAllServices({
       search,
       page,
       limit,
       includeVersions,
+      sortBy,
+      sortDirection,
     });
     return {
       statusCode: HttpStatus.OK,
@@ -163,6 +193,12 @@ export class ServicesController {
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Service not found.',
+    schema: {
+      example: {
+        statusCode: HttpStatus.NOT_FOUND,
+        message: 'Service not found',
+      },
+    },
   })
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
@@ -174,16 +210,99 @@ export class ServicesController {
   ) {
     const service = await this.servicesService.getServiceById({ id, includeVersions });
     if (!service) {
-      return {
+      throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
         message: 'Service not found',
-      };
+      });
     }
 
     return {
       statusCode: HttpStatus.OK,
       message: 'Service retrieved successfully',
       data: service,
+    };
+  }
+
+  @Auth()
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update a service (name, description, add or remove versions)' })
+  @ApiParam({
+    name: 'id',
+    description: 'ID of the service to be updated',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'The service has been successfully updated.',
+    schema: {
+      example: {
+        statusCode: 200,
+        message: 'Service updated successfully',
+        data: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          name: 'Updated Service Name',
+          description: 'Updated Service Description',
+          versions: [
+            {
+              id: 'version-1',
+              name: 'v1.1.0',
+            },
+          ],
+          createdAt: '2023-01-01T00:00:00Z',
+          updatedAt: '2023-01-02T00:00:00Z',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid input data.',
+    schema: {
+      example: {
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: 'Service name cannot be an empty ',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Service not found.',
+    schema: {
+      example: {
+        statusCode: HttpStatus.NOT_FOUND,
+        message: 'Service not found',
+      },
+    },
+  })
+  async updateService(@Param('id') id: string, @Body() body: UpdateServiceDto) {
+    if ((body.name !== undefined && body.name.trim() === '') || body.name === null) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: 'Service name cannot be empty.',
+      });
+    }
+
+    const updatedService = await this.servicesService.updateService({
+      serviceId: id,
+      updateData: {
+        name: body.name,
+        description: body.description,
+        versionsToAdd: body.versionsToAdd,
+        versionsToRemove: body.versionsToRemove,
+      },
+    });
+
+    if (!updatedService) {
+      throw new NotFoundException({
+        statusCode: HttpStatus.NOT_FOUND,
+        message: 'Service not found',
+      });
+    }
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Service updated successfully',
+      data: updatedService,
     };
   }
 }
